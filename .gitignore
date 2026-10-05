@@ -1,0 +1,13 @@
+data/*
+!data/README_data.md
+models/
+mlruns/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+.env
+*.wav
+*.npy
+*.tflite
+*.onnx

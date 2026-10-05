@@ -1,0 +1,22 @@
+seed: 42
+audio:
+  sample_rate: 16000
+  window_seconds: 2.0
+  top_db: 30
+features:
+  n_mels: 64
+  n_fft: 1024
+  hop_length: 256
+  n_mfcc: 40
+  fmin: 50
+  fmax: 8000
+paths:
+  raw: data/raw
+  wav: data/wav
+  segments: data/segments
+  features: data/features
+  manifests: data/manifests
+  models: models
+  results: results
+coughvid:
+  min_cough_prob: 0.8

@@ -1,0 +1,17 @@
+numpy
+scipy
+pandas
+librosa
+soundfile
+scikit-learn
+tensorflow
+matplotlib
+seaborn
+tqdm
+mlflow
+noisereduce
+onnx
+onnxruntime
+psutil
+pyyaml
+jupyter
