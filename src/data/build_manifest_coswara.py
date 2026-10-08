@@ -13,6 +13,9 @@ OUT.mkdir(parents=True, exist_ok=True)
 meta = pd.read_csv(META).drop(columns=["l_l"])          # drop locality (privacy)
 meta = meta.rename(columns={"id": "subject_id", "a": "age", "g": "gender",
                             "l_c": "country", "l_s": "state"})
+n_before = len(meta)
+meta = meta.drop_duplicates("subject_id")
+print("Duplicate metadata rows dropped:", n_before - len(meta))
 
 rows = []
 for date_dir in sorted(p for p in EXTRACTED.iterdir() if p.is_dir()):
@@ -22,16 +25,18 @@ for date_dir in sorted(p for p in EXTRACTED.iterdir() if p.is_dir()):
         for kind in ("heavy", "shallow"):
             f = subj / f"cough-{kind}.wav"
             if f.exists():
-                rows.append({"subject_id": subj.name, "rec_date": date_dir.name,
-                             "cough_type": kind,
-                             "raw_path": f.relative_to(ROOT).as_posix(),
-                             "wav_path": f"data/wav/coswara/{subj.name}_{kind}.wav"})
-files = pd.DataFrame(rows)
+                rows.append({
+                    "subject_id": subj.name, "rec_date": date_dir.name, "cough_type": kind,
+                    "raw_path": f.relative_to(ROOT).as_posix(),
+                    "wav_path": f"data/wav/coswara/{date_dir.name}_{subj.name}_{kind}.wav"})
+
+files = pd.DataFrame(rows).sort_values(["subject_id", "cough_type", "rec_date"])
+files["session_rank"] = files.groupby(["subject_id", "cough_type"]).cumcount()   # 0 = earliest
 df = files.merge(meta, on="subject_id", how="left")
 df["dataset"] = "coswara"
 
 
-def abnormal(s):      # provisional mapping, check the printed values first
+def abnormal(s):     # provisional mapping, documented in the paper
     if s == "healthy":
         return 0.0
     if isinstance(s, str) and (s.startswith("positive") or s == "resp_illness_not_identified"):
@@ -51,14 +56,13 @@ df["label_abnormal"] = df["covid_status"].map(abnormal)
 df["label_covid"] = df["covid_status"].map(covid)
 df.to_csv(OUT / "coswara_manifest.csv", index=False)
 
+multi = df[df.session_rank > 0]
+print("\nCough files:", len(df), "| subjects:", df.subject_id.nunique())
+print("Duplicate wav paths (must be 0):", df.wav_path.duplicated().sum())
+print("Extra sessions (session_rank > 0):", len(multi),
+      "| subjects affected:", multi.subject_id.nunique())
+first = df[df.session_rank == 0]
+print("Files with session_rank == 0:", len(first))
 subj = df.drop_duplicates("subject_id")
-print("Cough files:", len(df), "| subjects with audio:", df.subject_id.nunique())
-print("Subjects in combined_data.csv:", meta.subject_id.nunique())
-print("Audio subjects missing from metadata:", subj.covid_status.isna().sum())
-print("Duplicate output paths:", df.wav_path.duplicated().sum())
-print("\ncovid_status (per subject):")
-print(subj.covid_status.value_counts(dropna=False))
-print("\nlabel_abnormal (per subject):")
-print(subj.label_abnormal.value_counts(dropna=False))
-print("\nlabel_covid (per subject):")
-print(subj.label_covid.value_counts(dropna=False))
+print("\nlabel_abnormal per subject:\n", subj.label_abnormal.value_counts(dropna=False))
+print("\nlabel_covid per subject:\n", subj.label_covid.value_counts(dropna=False))

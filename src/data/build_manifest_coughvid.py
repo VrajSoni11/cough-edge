@@ -1,6 +1,7 @@
 """Build the COUGHVID manifest.
 Run from project root:  python src\data\build_manifest_coughvid.py
 """
+import hashlib
 from collections import Counter
 from pathlib import Path
 import numpy as np
@@ -33,15 +34,25 @@ def summarize_experts(row):
                       "expert_agree": max(frac, 1 - frac), "expert_bad_quality": bad})
 
 
+def same_person_proxy(r):
+    """Recordings sharing age + gender + coordinates are treated as one group.
+    COUGHVID has no speaker IDs, so this is a conservative stand-in."""
+    if any(pd.isna(r[c]) for c in ("age", "gender", "latitude", "longitude")):
+        return "u_" + r["uuid"]                       # missing metadata -> its own group
+    key = f"{r['age']}|{r['gender']}|{r['latitude']}|{r['longitude']}"
+    return "g_" + hashlib.sha1(key.encode()).hexdigest()[:12]
+
+
 df = pd.read_csv(RAW / "metadata_compiled.csv")
 df["SNR"] = df["SNR"].replace([np.inf, -np.inf], np.nan)
+df["group_proxy"] = df.apply(same_person_proxy, axis=1)   # must run before lat/lon are dropped
 
 exp = df.apply(summarize_experts, axis=1)
 for c in ["n_experts", "expert_binary", "expert_agree", "expert_bad_quality"]:
     exp[c] = pd.to_numeric(exp[c])
 
 keep = ["uuid", "datetime", "cough_detected", "SNR", "age", "gender",
-        "respiratory_condition", "fever_muscle_pain", "status"]   # lat/lon dropped on purpose
+        "respiratory_condition", "fever_muscle_pain", "status", "group_proxy"]  # lat/lon dropped
 df = pd.concat([df[keep], exp], axis=1)
 
 df["label_self"] = df["status"].map({"healthy": 0, "symptomatic": 1})   # COVID-19 / NaN -> NaN
@@ -51,14 +62,24 @@ df["raw_path"] = "data/raw/coughvid/public_dataset/" + df["uuid"] + ".wav"
 df["wav_path"] = "data/wav/coughvid/" + df["uuid"] + ".wav"
 df.to_csv(OUT / "coughvid_manifest.csv", index=False)
 
+# ---------------- summary ----------------
 print("Total rows:", len(df))
 print("\nSelf-reported binary, cough_detected >= 0.8:")
 print(df[df.is_cough].label_self.value_counts())
+
 ex = df[df.n_experts > 0]
 print("\nExpert-annotated recordings:", len(ex))
 print(ex.expert_diag.value_counts(dropna=False))
+
 clean = ex[(ex.expert_bad_quality == 0) & ex.expert_binary.notna()]
 print("\nExpert binary after quality filter (0=healthy, 1=abnormal):", len(clean))
 print(clean.expert_binary.value_counts())
 print("\nSelf vs expert on the overlap:")
 print(pd.crosstab(clean.expert_binary, clean.label_self, dropna=False))
+
+sizes = df.groupby("group_proxy").size()
+print("\nProxy groups (all):", len(sizes), "| largest:", sizes.max(),
+      "| groups with >1 recording:", (sizes > 1).sum())
+exs = ex.groupby("group_proxy").size()
+print("Proxy groups (expert-labelled):", len(exs), "| largest:", exs.max(),
+      "| groups with >1:", (exs > 1).sum())
